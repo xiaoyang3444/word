@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>试题解析工具</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        .input-section {
+            margin-bottom: 30px;
+        }
+        .input-section textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .button-group {
+            margin: 15px 0;
+            text-align: center;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button.clear {
+            background-color: #e74c3c;
+            margin-left: 10px;
+        }
+        button.clear:hover {
+            background-color: #c0392b;
+        }
+        .output-section {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .error-message {
+            color: #e74c3c;
+            padding: 10px;
+            background-color: #fadbd8;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+        .answer-cell {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>试题解析工具</h1>
+        
+        <!-- First, make sure your parseButton exists in the HTML -->
+        <div class="input-section">
+            <h2>试题输入</h2>
+            <!-- 确保HTML中有正确的ID -->
+            <div class="file-upload">
+                <input type="file" id="docxFile" accept=".docx" />
+                <button id="parseButton">解析试题</button>
+                <button id="exportButton">导出到Excel</button> <!-- 确保导出按钮存在 -->
+            </div>
+            <div id="errorMessage" class="error-message" style="display: none;"></div>
+        </div>
+        
+        <div class="output-section">
+            <h2>解析结果</h2>
+            <table id="resultTable">
+                <thead>
+                    <tr>
+                        <th>题型</th>
+                        <th>题号</th>
+                        <th>题目内容</th>
+                        <th>选项A</th>
+                        <th>选项B</th>
+                        <th>选项C</th>
+                        <th>选项D</th>
+                        <th>答案</th>
+                        <th>知识点/考点</th>
+                        <th>难度</th>
+                        <th>解析</th>
+                        <th>分值</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody">
+                    <!-- 解析结果将在这里显示 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 确保在页面加载完成后执行以下代码
+        // 添加题型匹配正则表达式定义
+        const sectionTypePattern = /([一二三四五六七八九十]+)、\s*([^\d]+?题)\s*(?:（共(\d+)题[，,]\s*每题(\d+(?:\.\d+)?)分[，,]\s*共\d+(?:\.\d+)?分）)?/;
+        
+        // 题号和题目内容提取正则
+        const questionNumberTextPattern = /(\d+)、\s*(.*?)(?=A[\.,、]|$)/ms;
+        
+        // 选项提取正则 - 分别匹配ABCD选项
+        const optionAPattern = /A[\.,、]\s*(.*?)(?=B[\.,、]|【答案】|$)/s;
+        const optionBPattern = /B[\.,、]\s*(.*?)(?=C[\.,、]|【答案】|$)/s;
+        const optionCPattern = /C[\.,、]\s*(.*?)(?=D[\.,、]|【答案】|$)/s;
+        const optionDPattern = /D[\.,、]\s*(.*?)(?=【答案】|$)/s;
+        
+        // 答案提取正则
+        const answerPattern = /【答案】\s*([A-D]+)/;
+        
+        // 知识点/考点提取正则
+        const knowledgePointPattern = /【知识点\/考点】\s*(.*?)(?=【难度】|【解析】|$)/s;
+        
+        // 难度提取正则
+        const difficultyPattern = /【难度】\s*(\d+)/;
+        
+        // 解析提取正则
+        const explanationPattern = /【解析】\s*(.*?)(?=[一二三四五六七八九十]+、|\d+、|$)/s;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取DOM元素
+            const docxFile = document.getElementById('docxFile');
+            const parseButton = document.getElementById('parseButton');
+            const exportButton = document.getElementById('exportButton'); // 确保获取导出按钮
+            const resultBody = document.getElementById('resultBody');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            // 添加调试信息
+            console.log('文件上传控件:', docxFile);
+            console.log('解析按钮:', parseButton);
+            console.log('导出按钮:', exportButton);
+            
+            // 检查元素是否存在
+            if (!docxFile) {
+                console.error('文件上传控件未找到！');
+                return;
+            }
+            
+            if (!parseButton) {
+                console.error('解析按钮未找到！');
+                return;
+            }
+            
+            if (!exportButton) {
+                console.error('导出按钮未找到！');
+                // 继续执行，不要返回，因为导出功能是新添加的
+            }
+            
+            const clearButton = document.getElementById('clearButton');
+            
+            // 检查元素是否存在
+            if (!docxFile || !parseButton || !exportButton) {
+                console.error('文件上传控件或解析按钮未找到！');
+                return;
+            }
+            
+            // 添加SheetJS库
+            const sheetScript = document.createElement('script');
+            sheetScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js';
+            document.head.appendChild(sheetScript);
+            
+            sheetScript.onload = function() {
+                console.log('SheetJS加载完成');
+                
+                // 只有当导出按钮存在时才添加事件监听器
+                if (exportButton) {
+                    exportButton.addEventListener('click', function() {
+                        console.log('导出按钮被点击');
+                        const table = document.getElementById('resultTable');
+                        if (table) {
+                            const wb = XLSX.utils.table_to_book(table, {sheet: "Sheet1"});
+                            XLSX.writeFile(wb, '试题解析结果.xlsx');
+                        } else {
+                            console.error('结果表格未找到！');
+                            alert('没有可导出的数据！');
+                        }
+                    });
+                }
+            };
+            
+            // 添加mammoth.js库
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.0/mammoth.browser.min.js';
+            document.head.appendChild(script);
+            
+            // 等待库加载完成
+            script.onload = function() {
+                console.log('mammoth.js加载完成');
+                
+                // 添加解析按钮点击事件
+                parseButton.addEventListener('click', function() {
+                    console.log('解析按钮被点击');
+                    const file = docxFile.files[0];
+                    if (!file) {
+                        showError('请先选择一个docx文件！');
+                        return;
+                    }
+                    
+                    console.log('选择的文件:', file.name);
+                    
+                    try {
+                        // 清空之前的结果和错误信息
+                        resultBody.innerHTML = '';
+                        errorMessage.style.display = 'none';
+                        
+                        // 使用FileReader读取文件
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            console.log('文件读取完成');
+                            // 获取文件内容作为ArrayBuffer
+                            const arrayBuffer = e.target.result;
+                            
+                            // 使用mammoth解析docx文件
+                            // 确保在文件解析成功后调用 processText
+                            mammoth.extractRawText({arrayBuffer: arrayBuffer})
+                                .then(function(result) {
+                                    console.log('文件解析完成');
+                                    const text = result.value;
+                                    console.log('提取的文本:', text.substring(0, 100) + '...');
+                                    processText(text); // 确保调用 processText
+                                })
+                                .catch(function(error) {
+                                    showError('解析docx文件时出错：' + error.message);
+                                    console.error('Mammoth错误:', error);
+                                });
+                        };
+                        
+                        reader.onerror = function(e) {
+                            showError('读取文件时出错！');
+                            console.error('FileReader错误:', e);
+                        };
+                        
+                        // 开始读取文件
+                        console.log('开始读取文件...');
+                        reader.readAsArrayBuffer(file);
+                        
+                    } catch (error) {
+                        showError('解析过程中出错：' + error.message);
+                        console.error('一般错误:', error);
+                    }
+                }); // 解析按钮事件监听器结束
+                
+                // 清空按钮事件
+                if (clearButton) {
+                    clearButton.addEventListener('click', function() {
+                        docxFile.value = ''; // 修改为docxFile而不是inputText
+                        resultBody.innerHTML = '';
+                        errorMessage.style.display = 'none';
+                    });
+                }
+                
+                // 错误显示函数
+                function showError(message) {
+                    errorMessage.textContent = message;
+                    errorMessage.style.display = 'block';
+                }
+                
+                // 处理文本函数
+                // 确保 processText 函数正确处理文本
+                function processText(text) {
+                    // 找出题型和对应的分值
+                    const typeMatch = text.match(sectionTypePattern);
+                    let currentQuestionType = typeMatch ? typeMatch[2] : '';
+                    let currentScore = typeMatch ? parseFloat(typeMatch[4] || '0') : 0;
+                    
+                    // 分割多个题目，并过滤掉空白内容
+                    const questionBlocks = text.split(/(?=\d+、)/m)
+                        .filter(block => block.trim() && /^\d+、/.test(block.trim()));
+                    
+                    if (questionBlocks.length === 0) {
+                        showError('未能识别任何符合格式的试题，请检查文件格式！');
+                        return;
+                    }
+                    
+                    // 处理每个题目
+                    questionBlocks.forEach((block, index) => {
+                        // 确保只处理有效的题目块
+                        if (block.trim()) {
+                            const questionData = extractQuestion(block, index + 1, currentQuestionType, currentScore);
+                            const newTypeMatch = block.match(sectionTypePattern);
+                            if (newTypeMatch) {
+                                currentQuestionType = newTypeMatch[2];
+                                currentScore = newTypeMatch[4] ? parseFloat(newTypeMatch[4]) : 0;
+                            }
+                            if (questionData && questionData.text.trim()) {
+                                displayQuestion(questionData); // 确保调用 displayQuestion
+                            }
+                        }
+                    });
+                }
+                
+                // 添加 extractQuestion 函数定义
+                function extractQuestion(text, index, defaultType, defaultScore) {
+                    // 提取题号
+                    const numberMatch = text.match(/^(\d+)、/);
+                    const number = numberMatch ? numberMatch[1] : index;
+                    
+                    // 提取题目文本
+                    const questionTextMatch = text.match(/^(\d+)、([\s\S]+?)(?=A[\.、]|$)/);
+                    const questionText = questionTextMatch ? questionTextMatch[2].trim() : '';
+                    
+                    // 提取选项
+                    const optionAMatch = text.match(/A[\.、]([\s\S]+?)(?=B[\.、]|【答案】|$)/);
+                    const optionA = optionAMatch ? optionAMatch[1].trim() : '';
+                    
+                    const optionBMatch = text.match(/B[\.、]([\s\S]+?)(?=C[\.、]|【答案】|$)/);
+                    const optionB = optionBMatch ? optionBMatch[1].trim() : '';
+                    
+                    const optionCMatch = text.match(/C[\.、]([\s\S]+?)(?=D[\.、]|【答案】|$)/);
+                    const optionC = optionCMatch ? optionCMatch[1].trim() : '';
+                    
+                    const optionDMatch = text.match(/D[\.、]([\s\S]+?)(?=【答案】|$)/);
+                    const optionD = optionDMatch ? optionDMatch[1].trim() : '';
+                    
+                    // 提取答案
+                    const answerMatch = text.match(answerPattern);
+                    const answer = answerMatch ? answerMatch[1].trim() : '';
+                    
+                    // 提取知识点
+                    const knowledgeMatch = text.match(knowledgePointPattern);
+                    const knowledgePoint = knowledgeMatch ? knowledgeMatch[1].trim() : '';
+                    
+                    // 提取难度
+                    const difficultyMatch = text.match(difficultyPattern);
+                    const difficulty = difficultyMatch ? difficultyMatch[1] : '';
+                    
+                    // 提取解析
+                    const explanationMatch = text.match(explanationPattern);
+                    const explanation = explanationMatch ? explanationMatch[1].trim() : '0';
+                    
+                    // 使用传入的默认分值
+                    const scoreMatch = text.match(/分值：(\d+(?:\.\d+)?)分/);
+                    const score = scoreMatch ? parseFloat(scoreMatch[1]) : defaultScore;
+                    
+                    return {
+                        number,
+                        type: defaultType,
+                        text: questionText,
+                        optionA,
+                        optionB,
+                        optionC,
+                        optionD,
+                        answer,
+                        knowledgePoint,
+                        difficulty,
+                        explanation: explanation || '0',
+                        score: score
+                    };
+                }
+                
+                // 添加 displayQuestion 函数定义
+                function displayQuestion(question) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${question.type}</td>
+                        <td>${question.number}</td>
+                        <td>${question.text}</td>
+                        <td>${question.optionA}</td>
+                        <td>${question.optionB}</td>
+                        <td>${question.optionC}</td>
+                        <td>${question.optionD}</td>
+                        <td class="answer-cell">${question.answer}</td>
+                        <td>${question.knowledgePoint}</td>
+                        <td>${question.difficulty}</td>
+                        <td>${question.explanation}</td>
+                        <td>${question.score}</td>
+                    `;
+                    resultBody.appendChild(row);
+                }
+            }; // script.onload 函数结束
+        }); // DOMContentLoaded 事件监听器结束
+    </script>
+</body>
+</html>
