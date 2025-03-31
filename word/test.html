@@ -118,19 +118,21 @@
             <table id="resultTable">
                 <thead>
                     <tr>
-                        <th>题型</th>
+                        <th>题型(必填)</th>
                         <th>题号</th>
-                        <th>题目内容</th>
+                        <th>题干(必填)</th>
                         <th>选项A</th>
                         <th>选项B</th>
                         <th>选项C</th>
                         <th>选项D</th>
-                        <th>答案</th>
-                        <th>选项数量</th> <!-- 新增列头 -->
-                        <th>知识点/考点</th>
-                        <th>难度</th>
+                        <th>选项数量(必填)</th>
+                        <th>答案(必填)</th>
+                        <th>分值(必填)</th>
+                        <th>难度系数(必填)</th>
+                        <th>知识点（非必填）</th>
+                        <th>备注(非必填)</th>
+                        <th>试题类型(必填)</th>
                         <th>解析</th>
-                        <th>分值</th>
                     </tr>
                 </thead>
                 <tbody id="resultBody">
@@ -409,12 +411,14 @@
                         <td>${question.optionB}</td>
                         <td>${question.optionC}</td>
                         <td>${question.optionD}</td>
+                        <td>${optionCount}</td>
                         <td class="answer-cell">${question.answer}</td>
-                        <td>${optionCount}</td> <!-- 选项数量放在答案后面 -->
-                        <td>${question.knowledgePoint}</td>
-                        <td>${question.difficulty}</td>
-                        <td>${question.explanation}</td>
                         <td>${question.score}</td>
+                        <td>${question.difficulty}</td>
+                        <td>${question.knowledgePoint}</td>
+                        <td></td>
+                        <td></td>
+                        <td>${question.explanation}</td>
                     `;
                     resultBody.appendChild(row);
                 }
