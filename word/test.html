@@ -8,18 +8,19 @@
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 20px 0;
             line-height: 1.6;
             color: #333;
             background-color: #f5f5f5;
         }
         .container {
-            max-width: 1200px;
+            width: 100%;
             margin: 0 auto;
             background-color: white;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 20px;
+            box-sizing: border-box;
         }
         h1 {
             text-align: center;
@@ -106,7 +107,8 @@
             <h2>试题输入</h2>
             <!-- 确保HTML中有正确的ID -->
             <div class="file-upload">
-                <input type="file" id="docxFile" accept=".docx" />
+                <label for="docxFile">选择Word文档：</label>
+                <input type="file" id="docxFile" accept=".docx" title="请选择Word文档文件" />
                 <button id="parseButton">解析试题</button>
                 <button id="exportButton">导出到Excel</button> <!-- 确保导出按钮存在 -->
             </div>
@@ -205,25 +207,277 @@
                 return;
             }
             
-            // 添加SheetJS库
-            const sheetScript = document.createElement('script');
-            sheetScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js';
-            document.head.appendChild(sheetScript);
+            // 添加ExcelJS库
+            const excelJSScript = document.createElement('script');
+            excelJSScript.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
+            document.head.appendChild(excelJSScript);
             
-            sheetScript.onload = function() {
-                console.log('SheetJS加载完成');
+            // 添加FileSaver.js库
+            const fileSaverScript = document.createElement('script');
+            fileSaverScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js';
+            document.head.appendChild(fileSaverScript);
+
+            // 添加一个全局变量存储图片数据，以便下载按钮使用
+            window.imageDataMap = {};
+            
+            // 等待库加载完成
+            excelJSScript.onload = function() {
+                console.log('ExcelJS加载完成');
                 
                 // 只有当导出按钮存在时才添加事件监听器
                 if (exportButton) {
                     exportButton.addEventListener('click', function() {
                         console.log('导出按钮被点击');
                         const table = document.getElementById('resultTable');
-                        if (table) {
-                            const wb = XLSX.utils.table_to_book(table, {sheet: "Sheet1"});
-                            XLSX.writeFile(wb, '试题解析结果.xlsx');
-                        } else {
-                            console.error('结果表格未找到！');
+                        const tbody = document.getElementById('resultBody');
+                        if (!table || !tbody || tbody.rows.length === 0) {
+                             console.error('结果表格未找到或没有数据！');
                             alert('没有可导出的数据！');
+                            return;
+                        }
+
+                        try {
+                            // 获取表头和数据
+                            const headerRow = table.querySelector('thead tr');
+                            const headers = [];
+                            headerRow.querySelectorAll('th').forEach(th => {
+                                headers.push(th.textContent);
+                            });
+                            
+                            // 获取表格数据
+                            const rows = [];
+                            Array.from(tbody.rows).forEach(tr => {
+                                const rowData = [];
+                                Array.from(tr.cells).forEach(td => {
+                                    const imgElement = td.querySelector('img');
+                                    if (imgElement && imgElement.src) {
+                                        // 处理图片单元格 - 在ExcelJS中我们将直接嵌入图片
+                                        // 先存储一个空字符串作为占位符
+                                        rowData.push('');
+                                        
+                                        // 存储图片信息以便后续处理
+                                        const cellIndex = rowData.length - 1; // 当前单元格在行中的索引
+                                        const rowIndex = rows.length; // 当前行在数据中的索引
+                                        
+                                        // 创建唯一ID
+                                        const imageId = `img_${rowIndex}_${cellIndex}`;
+                                        window.imageDataMap[imageId] = {
+                                            src: imgElement.src,
+                                            row: rowIndex + 1, // +1 是因为表头行
+                                            col: cellIndex,
+                                        };
+                                    } else {
+                                        // 处理文本单元格
+                                        rowData.push(td.textContent || '');
+                                    }
+                                });
+                                rows.push(rowData);
+                            });
+                            
+                            // 创建工作簿
+                            const workbook = new ExcelJS.Workbook();
+                            workbook.creator = '试题解析工具';
+                            workbook.lastModifiedBy = '试题解析工具';
+                            workbook.created = new Date();
+                            workbook.modified = new Date();
+                            
+                            // 添加工作表
+                            const worksheet = workbook.addWorksheet('试题数据');
+                            
+                            // 添加表头行并设置样式
+                            const headerRowExcel = worksheet.addRow(headers);
+                            headerRowExcel.eachCell(cell => {
+                                cell.font = { bold: true };
+                                cell.fill = {
+                                    type: 'pattern',
+                                    pattern: 'solid',
+                                    fgColor: { argb: 'FFE0E0E0' } // 浅灰色背景
+                                };
+                                cell.border = {
+                                    top: { style: 'thin' },
+                                    left: { style: 'thin' },
+                                    bottom: { style: 'thin' },
+                                    right: { style: 'thin' }
+                                };
+                                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                            });
+                            
+                            // 添加数据行
+                            rows.forEach(rowData => {
+                                const row = worksheet.addRow(rowData);
+                                
+                                // 遍历每个单元格，设置样式
+                                row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                                    // 设置单元格边框
+                                    cell.border = {
+                                        top: { style: 'thin' },
+                                        left: { style: 'thin' },
+                                        bottom: { style: 'thin' },
+                                        right: { style: 'thin' }
+                                    };
+                                    
+                                    // 设置垂直居中
+                                    cell.alignment = { vertical: 'middle' };
+                                    
+                                    // 获取单元格值
+                                    const value = cell.value;
+                                    if (value === null || value === undefined || value === '') return;
+                                    
+                                    // 检查是否为可能的数字列
+                                    const headerText = headers[colNumber - 1];
+                                    
+                                    // 确定是否应该设置为数字格式的列
+                                    const isNumericColumn = 
+                                        headerText.includes('题号') || 
+                                        headerText.includes('分值') || 
+                                        headerText.includes('难度系数') || 
+                                        headerText.includes('选项数量');
+                                    
+                                    if (isNumericColumn) {
+                                        // 尝试转换为数字
+                                        const numericValue = parseFloat(value);
+                                        if (!isNaN(numericValue)) {
+                                            // 如果是整数，不显示小数点
+                                            if (Number.isInteger(numericValue)) {
+                                                cell.value = numericValue;
+                                                cell.numFmt = '0'; // 整数格式
+                                            } else {
+                                                cell.value = numericValue;
+                                                cell.numFmt = '0.0'; // 保留一位小数
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 设置水平对齐方式
+                                    if (isNumericColumn || headerText.includes('答案')) {
+                                        cell.alignment.horizontal = 'center';
+                                    }
+                                });
+                            });
+                            
+                            // 确保每个单元格都有边框
+                            worksheet.eachRow((row, rowNumber) => {
+                                row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                                    if (!cell.border) {
+                                        cell.border = {
+                                            top: { style: 'thin' },
+                                            left: { style: 'thin' },
+                                            bottom: { style: 'thin' },
+                                            right: { style: 'thin' }
+                                        };
+                                    }
+                                });
+                            });
+                            
+                            // 设置列宽
+                            worksheet.columns.forEach((column, index) => {
+                                // 根据内容设置列宽
+                                let maxLength = headers[index] ? headers[index].length : 10;
+                                rows.forEach(row => {
+                                    const cellValue = row[index] || '';
+                                    const cellLength = cellValue.toString().length;
+                                    maxLength = Math.max(maxLength, cellLength);
+                                });
+                                
+                                // 列宽稍微加宽一些，确保内容能够完整显示
+                                column.width = Math.min(50, Math.max(10, maxLength + 2));
+                            });
+                            
+                            // 自动调整行高
+                            worksheet.eachRow(row => {
+                                row.height = 20; // 设置默认行高
+                            });
+                            
+                            // 处理图片
+                            console.log('开始处理图片，共有图片:', Object.keys(window.imageDataMap).length);
+                            
+                            const imagePromises = []; // 存储处理图片的Promise
+                            
+                            // 处理每一个图片
+                            for (const imageId in window.imageDataMap) {
+                                const imageInfo = window.imageDataMap[imageId];
+                                console.log(`处理图片 ${imageId}: row=${imageInfo.row}, col=${imageInfo.col}`);
+                                
+                                const promise = (async function() {
+                                    try {
+                                        // 将base64图片数据转换为Blob
+                                        const response = await fetch(imageInfo.src);
+                                        const blob = await response.blob();
+                                        
+                                        // 将Blob转换为ArrayBuffer
+                                        const arrayBuffer = await new Promise((resolve, reject) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result);
+                                            reader.onerror = reject;
+                                            reader.readAsArrayBuffer(blob);
+                                        });
+                                        
+                                        // 获取图片类型
+                                        const imageType = imageInfo.src.match(/data:([^;]+);/) ? 
+                                            imageInfo.src.match(/data:([^;]+);/)[1] : 'image/jpeg';
+                                        
+                                        // 添加图片到工作表
+                                        const imageId = workbook.addImage({
+                                            buffer: arrayBuffer,
+                                            extension: imageType.split('/')[1] || 'jpeg',
+                                        });
+                                        
+                                        // 计算图片所在单元格，注意ExcelJS的行列索引从1开始
+                                        const row = imageInfo.row + 1; // +1 是因为表头行
+                                        const col = imageInfo.col + 1; // +1 是因为Excel列索引从1开始
+                                        
+                                        // 将图片添加到单元格前先设置单元格样式
+                                        const imageCell = worksheet.getCell(imageInfo.row + 1, imageInfo.col + 1);
+                                        
+                                        // 确保先设置单元格对齐方式
+                                        imageCell.alignment = { 
+                                            vertical: 'middle', 
+                                            horizontal: 'center'
+                                        };
+                                        
+                                        // 确保设置行高足够显示图片
+                                        const rowObj = worksheet.getRow(imageInfo.row + 1);
+                                        rowObj.height = 130; // 比图片高度略高一些
+                                        
+                                        // 然后添加图片，确保图片位置正确
+                                        worksheet.addImage(imageId, {
+                                            tl: { col: imageInfo.col, row: imageInfo.row },
+                                            br: { col: imageInfo.col + 1, row: imageInfo.row + 1 }, // 使用br而不是ext
+                                            editAs: 'oneCell' // 图片随单元格调整
+                                        });
+                                        
+                                        console.log(`图片 ${imageId} 添加成功，已设置单元格样式`);
+                                    } catch (error) {
+                                        console.error(`处理图片 ${imageId} 时出错:`, error);
+                                    }
+                                })();
+                                
+                                imagePromises.push(promise);
+                            }
+                            
+                            // 等待所有图片处理完成
+                            Promise.all(imagePromises).then(async () => {
+                                console.log('所有图片处理完成，准备导出Excel');
+                                
+                                try {
+                                    // 生成Excel文件并下载
+                                    const buffer = await workbook.xlsx.writeBuffer();
+                                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                    saveAs(blob, '试题解析结果_含图片.xlsx');
+                                    
+                                    console.log('Excel文件导出完成');
+                                } catch (error) {
+                                    console.error('导出Excel文件时出错:', error);
+                                    alert('导出Excel文件时出错: ' + error.message);
+                                }
+                            }).catch(error => {
+                                console.error('处理图片过程中出错:', error);
+                                alert('处理图片过程中出错，请查看控制台获取详细信息');
+                            });
+                            
+                        } catch (error) {
+                            console.error('导出Excel时出错:', error);
+                            alert('导出Excel时出错: ' + error.message);
                         }
                     });
                 }
@@ -239,6 +493,13 @@
                 console.log('mammoth.js加载完成');
                 
                 // 添加解析按钮点击事件
+                // 错误显示函数
+                function showError(message) {
+                    errorMessage.textContent = message;
+                    errorMessage.style.display = 'block';
+                }
+                
+                // 修改解析逻辑以支持图片提取
                 parseButton.addEventListener('click', function() {
                     console.log('解析按钮被点击');
                     const file = docxFile.files[0];
@@ -261,14 +522,13 @@
                             // 获取文件内容作为ArrayBuffer
                             const arrayBuffer = e.target.result;
                             
-                            // 使用mammoth解析docx文件
-                            // 确保在文件解析成功后调用 processText
-                            mammoth.extractRawText({arrayBuffer: arrayBuffer})
+                            // 使用mammoth解析docx文件为HTML
+                            mammoth.convertToHtml({arrayBuffer: arrayBuffer})
                                 .then(function(result) {
                                     console.log('文件解析完成');
-                                    const text = result.value;
-                                    console.log('提取的文本:', text.substring(0, 100) + '...');
-                                    processText(text); // 确保调用 processText
+                                    const html = result.value;
+                                    console.log('提取的HTML:', html.substring(0, 100) + '...');
+                                    processHtml(html); // 确保调用 processHtml
                                 })
                                 .catch(function(error) {
                                     showError('解析docx文件时出错：' + error.message);
@@ -291,102 +551,131 @@
                     }
                 }); // 解析按钮事件监听器结束
                 
-                // 清空按钮事件
-                if (clearButton) {
-                    clearButton.addEventListener('click', function() {
-                        docxFile.value = ''; // 修改为docxFile而不是inputText
-                        resultBody.innerHTML = '';
-                        errorMessage.style.display = 'none';
-                    });
-                }
-                
-                // 错误显示函数
-                function showError(message) {
-                    errorMessage.textContent = message;
-                    errorMessage.style.display = 'block';
-                }
-                
-                // 处理文本函数
-                // 确保 processText 函数正确处理文本
-                function processText(text) {
-                    // 找出题型和对应的分值
-                    const typeMatch = text.match(sectionTypePattern);
-                    let currentQuestionType = typeMatch ? typeMatch[2] : '';
-                    let currentScore = typeMatch ? parseFloat(typeMatch[4] || '0') : 0;
+                // 重构 processHtml 函数以处理跨段落题目
+                function processHtml(html) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    // 改为选择所有直接子元素，更通用一些，以防 mammoth 输出嵌套结构
+                    const contentNodes = tempDiv.childNodes; 
                     
-                    // 分割多个题目，并过滤掉空白内容
-                    const questionBlocks = text.split(/(?=\d+、)/m)
-                        .filter(block => block.trim() && /^\d+、/.test(block.trim()));
-                    
-                    if (questionBlocks.length === 0) {
-                        showError('未能识别任何符合格式的试题，请检查文件格式！');
-                        return;
-                    }
-                    
-                    // 处理每个题目
-                    questionBlocks.forEach((block, index) => {
-                        // 确保只处理有效的题目块
-                        if (block.trim()) {
-                            const questionData = extractQuestion(block, index + 1, currentQuestionType, currentScore);
-                            const newTypeMatch = block.match(sectionTypePattern);
-                            if (newTypeMatch) {
-                                currentQuestionType = newTypeMatch[2];
-                                currentScore = newTypeMatch[4] ? parseFloat(newTypeMatch[4]) : 0;
+                    let currentQuestionType = '';
+                    let currentScore = 0;
+                    let currentQuestionContentBuffer = ''; // HTML内容缓冲区
+                    let currentQuestionNumber = null;
+                    let isProcessingQuestion = false; // 标记是否在处理一个题目
+
+                    contentNodes.forEach((node, index) => {
+                        // 只处理元素节点，特别是段落 p，但也可能需要处理其他块级元素
+                        if (node.nodeType !== Node.ELEMENT_NODE) return; 
+
+                        // 优先使用 outerHTML 保留图片等标签
+                        const nodeHtml = node.outerHTML || ''; 
+                        const nodeText = node.textContent.trim();
+
+                        // 检查是否是新的题型标记
+                        const typeMatch = nodeText.match(sectionTypePattern);
+                        if (typeMatch) {
+                            // 如果之前正在处理题目，先解析缓冲区内容
+                            if (isProcessingQuestion && currentQuestionContentBuffer) {
+                                const questionData = extractQuestionData(currentQuestionContentBuffer, currentQuestionNumber, currentQuestionType, currentScore);
+                                if (questionData) displayQuestion(questionData);
                             }
-                            if (questionData && questionData.text.trim()) {
-                                displayQuestion(questionData); // 确保调用 displayQuestion
+                            // 重置状态，开始新题型
+                            currentQuestionType = typeMatch[2];
+                            currentScore = typeMatch[4] ? parseFloat(typeMatch[4]) : 0;
+                            currentQuestionContentBuffer = '';
+                            currentQuestionNumber = null;
+                            isProcessingQuestion = false;
+                            console.log(`开始新题型: ${currentQuestionType}, 分值: ${currentScore}`);
+                            return; // 跳过题型标记行
+                        }
+
+                        // 检查是否是新题目的开始 (数字 + 、)
+                        const questionStartMatch = nodeText.match(/^(\d+)、/);
+                        if (questionStartMatch) {
+                            // 如果之前正在处理题目，先解析缓冲区内容
+                            if (isProcessingQuestion && currentQuestionContentBuffer) {
+                                const questionData = extractQuestionData(currentQuestionContentBuffer, currentQuestionNumber, currentQuestionType, currentScore);
+                                if (questionData) displayQuestion(questionData);
                             }
+                            // 开始处理新题目
+                            currentQuestionNumber = questionStartMatch[1];
+                            currentQuestionContentBuffer = nodeHtml; // 使用HTML内容初始化缓冲区
+                            isProcessingQuestion = true;
+                            console.log(`开始处理题目 ${currentQuestionNumber}`);
+                        } else if (isProcessingQuestion) {
+                            // 如果正在处理题目，将当前节点内容追加到缓冲区
+                            // 改用空格分隔，避免产生 \n
+                            currentQuestionContentBuffer += ' ' + nodeHtml; 
+                            console.log(`追加内容到题目 ${currentQuestionNumber}`);
+                        }
+
+                        // 处理文档末尾最后一个题目
+                        if (index === contentNodes.length - 1 && isProcessingQuestion && currentQuestionContentBuffer) {
+                             console.log(`处理最后一个题目 ${currentQuestionNumber}`);
+                             const questionData = extractQuestionData(currentQuestionContentBuffer, currentQuestionNumber, currentQuestionType, currentScore);
+                             if (questionData) displayQuestion(questionData);
                         }
                     });
                 }
-                
-                // 添加 extractQuestion 函数定义
-                function extractQuestion(text, index, defaultType, defaultScore) {
-                    // 提取题号
-                    const numberMatch = text.match(/^(\d+)、/);
-                    const number = numberMatch ? numberMatch[1] : index;
-                    
-                    // 提取题目文本
-                    const questionTextMatch = text.match(/^(\d+)、([\s\S]+?)(?=A[\.、]|$)/);
-                    const questionText = questionTextMatch ? questionTextMatch[2].trim() : '';
-                    
-                    // 提取选项
-                    const optionAMatch = text.match(/A[\.、]([\s\S]+?)(?=B[\.、]|【答案】|$)/);
-                    const optionA = optionAMatch ? optionAMatch[1].trim() : '';
-                    
-                    const optionBMatch = text.match(/B[\.、]([\s\S]+?)(?=C[\.、]|【答案】|$)/);
-                    const optionB = optionBMatch ? optionBMatch[1].trim() : '';
-                    
-                    const optionCMatch = text.match(/C[\.、]([\s\S]+?)(?=D[\.、]|【答案】|$)/);
-                    const optionC = optionCMatch ? optionCMatch[1].trim() : '';
-                    
-                    const optionDMatch = text.match(/D[\.、]([\s\S]+?)(?=【答案】|$)/);
-                    const optionD = optionDMatch ? optionDMatch[1].trim() : '';
-                    
-                    // 提取答案
-                    const answerMatch = text.match(answerPattern);
-                    const answer = answerMatch ? answerMatch[1].trim() : '';
-                    
-                    // 提取知识点
-                    const knowledgeMatch = text.match(knowledgePointPattern);
-                    const knowledgePoint = knowledgeMatch ? knowledgeMatch[1].trim() : '';
-                    
-                    // 提取难度
-                    const difficultyMatch = text.match(difficultyPattern);
-                    const difficulty = difficultyMatch ? difficultyMatch[1] : '';
-                    
-                    // 提取解析
-                    const explanationMatch = text.match(explanationPattern);
-                    const explanation = explanationMatch ? explanationMatch[1].trim() : '0';
-                    
-                    // 使用传入的默认分值
-                    const scoreMatch = text.match(/分值：(\d+(?:\.\d+)?)分/);
-                    const score = scoreMatch ? parseFloat(scoreMatch[1]) : defaultScore;
-                    
+
+                // 合并后的题目数据提取函数
+                function extractQuestionData(contentHtml, number, defaultType, defaultScore) {
+                    console.log(`提取数据 - 题目 ${number}, HTML: ${contentHtml.substring(0,100)}...`);
+                    // 创建临时div来处理累积的HTML
+                    const tempContentDiv = document.createElement('div');
+                    tempContentDiv.innerHTML = contentHtml;
+
+                    // 提取图片 (可能存在多个，取第一个作为代表?)
+                    const imgElement = tempContentDiv.querySelector('img');
+                    const image = imgElement ? imgElement.src : '';
+                    if (image) console.log(`  找到图片: ${image.substring(0, 50)}...`);
+
+                    // 获取完整的文本内容用于正则匹配
+                    const fullText = tempContentDiv.textContent || ""; 
+                    console.log(`  完整文本: ${fullText.substring(0, 100)}...`);
+
+                    // Helper function to clean extracted text
+                    function cleanExtractedText(text) {
+                        if (!text) return '';
+                        // Trim standard whitespace and then specifically remove leading/trailing \n 
+                        return text.trim().replace(/^\n+|\n+$/g, ''); 
+                    }
+
+                    const textMatch = fullText.match(/\d+、\s*(.*?)(?=A[.,、]|【答案】|$)/ms);
+                    let questionTextOnly = textMatch ? textMatch[1].trim() : ''; // Keep internal newlines for question text
+                    if (image && !questionTextOnly) {
+                        // Handle image-only questions
+                    }
+                    console.log(`  题干文本: ${questionTextOnly}`);
+
+                    let optionA = cleanExtractedText((fullText.match(optionAPattern) || ['', ''])[1]);
+                    let optionB = cleanExtractedText((fullText.match(optionBPattern) || ['', ''])[1]);
+                    let optionC = cleanExtractedText((fullText.match(optionCPattern) || ['', ''])[1]);
+                    let optionD = cleanExtractedText((fullText.match(optionDPattern) || ['', ''])[1]);
+                    console.log(`  选项 (清理后): A='${optionA}', B='${optionB}', C='${optionC}', D='${optionD}'`);
+
+                    let answer = cleanExtractedText((fullText.match(answerPattern) || ['', ''])[1]);
+                    console.log(`  答案 (清理后): ${answer}`);
+
+                    let knowledgePoint = cleanExtractedText((fullText.match(knowledgePointPattern) || ['', ''])[1]);
+                    console.log(`  知识点 (清理后): ${knowledgePoint}`);
+
+                    let difficulty = cleanExtractedText((fullText.match(difficultyPattern) || ['', ''])[1]);
+                    console.log(`  难度 (清理后): ${difficulty}`);
+
+                    let explanation = cleanExtractedText((fullText.match(explanationPattern) || ['', ''])[1]);
+                    console.log(`  解析 (清理后): ${explanation}`);
+
+                    if (!image && !questionTextOnly && !optionA && !optionB && !answer) {
+                         console.warn(`  解析可能不完整或失败: 题目 ${number}`);
+                    }
+
                     return {
-                        number,
+                        number: number, 
                         type: defaultType,
-                        text: questionText,
+                        image: image,
+                        text: questionTextOnly, 
                         optionA,
                         optionB,
                         optionC,
@@ -394,31 +683,47 @@
                         answer,
                         knowledgePoint,
                         difficulty,
-                        explanation: explanation || '0',
-                        score: score
+                        explanation,
+                        score: defaultScore || 0
                     };
                 }
-                
-                // 添加 displayQuestion 函数定义
+
+                // 修改 displayQuestion 函数以适应新的数据结构
                 function displayQuestion(question) {
+                    if (!question) return; // 如果提取失败则不显示
+
+                    console.log(`显示题目 ${question.number}`);
                     const row = document.createElement('tr');
-                    const optionCount = [question.optionA, question.optionB, question.optionC, question.optionD].filter(option => option).length; // 计算选项数量
+                    const optionCount = [question.optionA, question.optionB, question.optionC, question.optionD].filter(opt => opt).length;
+                    
+                    // 处理题干显示：优先图片，若无图片则显示文字题干
+                    let questionContent = '';
+                    if (question.image) {
+                        questionContent = `<img src="${question.image}" style="max-width: 100%; height: auto;" alt="题目图片 ${question.number}">`;
+                        // 可选：如果同时有图片和文字题干，可以都显示
+                        if (question.text) {
+                            questionContent += `<br>${question.text}`; // 图片下方显示文字
+                        }
+                    } else {
+                        questionContent = question.text; // 显示文字题干
+                    }
+                    
                     row.innerHTML = `
-                        <td>${question.type}</td>
-                        <td>${question.number}</td>
-                        <td>${question.text}</td>
-                        <td>${question.optionA}</td>
-                        <td>${question.optionB}</td>
-                        <td>${question.optionC}</td>
-                        <td>${question.optionD}</td>
+                        <td>${question.type || ''}</td>
+                        <td>${question.number || ''}</td>
+                        <td>${questionContent}</td>
+                        <td>${question.optionA || ''}</td>
+                        <td>${question.optionB || ''}</td>
+                        <td>${question.optionC || ''}</td>
+                        <td>${question.optionD || ''}</td>
                         <td>${optionCount}</td>
-                        <td class="answer-cell">${question.answer}</td>
-                        <td>${question.score}</td>
-                        <td>${question.difficulty}</td>
-                        <td>${question.knowledgePoint}</td>
-                        <td></td>
-                        <td></td>
-                        <td>${question.explanation}</td>
+                        <td class="answer-cell">${question.answer || ''}</td>
+                        <td>${question.score || ''}</td>
+                        <td>${question.difficulty || ''}</td>
+                        <td>${question.knowledgePoint || ''}</td>
+                        <td></td> <!-- 备注 -->
+                        <td></td> <!-- 试题类型 -->
+                        <td>${question.explanation || ''}</td>
                     `;
                     resultBody.appendChild(row);
                 }
